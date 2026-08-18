@@ -27,7 +27,11 @@ async def health():
 @app.post("/ask")
 async def ask(request: Request):
     try:
-        data = await request.json()
+        body = await request.body()
+        logger.info(f"Raw body: {body}")
+
+        import json
+        data = json.loads(body)
         question = data.get("question", "")
 
         if not question:
@@ -36,6 +40,7 @@ async def ask(request: Request):
                 content={"error": "question kosong"},
             )
 
+        logger.info(f"Calling Gemini with question: {question[:80]}")
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=question,
@@ -60,14 +65,14 @@ async def ask(request: Request):
                 content={"error": "Gemini return kosong"},
             )
 
-        logger.info(f"Question: {question[:50]}... | Reply: {reply[:50]}...")
+        logger.info(f"Reply: {reply[:80]}")
         return {"reply": reply}
 
     except Exception as e:
-        logger.error(f"Error: {type(e).__name__}: {e}")
+        logger.error(f"Error: {type(e).__name__}: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
-            content={"error": str(e)},
+            content={"error": f"{type(e).__name__}: {str(e)}"},
         )
 
 
