@@ -53,7 +53,7 @@ async def ask(request: Request):
                     "- Gunakan bullet point jika perlu.\n"
                     "- Gunakan emoji sesekali saja."
                 ),
-                "max_output_tokens": 682,
+                "max_output_tokens": 4096,
                 "temperature": 0.7,
             },
         )
