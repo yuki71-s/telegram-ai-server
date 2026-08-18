@@ -14,13 +14,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# ── API Keys ────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 if not GROQ_API_KEY and not CEREBRAS_API_KEY and not GEMINI_API_KEY:
-    raise ValueError("Minimal 1 API key harus diisi (GROQ/CEREBRAS/GEMINI).")
+    raise ValueError("Minimal 1 API key harus diisi.")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
@@ -35,14 +34,21 @@ SYSTEM_PROMPT = (
 )
 
 
-# ── Provider: Groq ─────────────────────────────────────────────────
-async def call_groq(messages: list[dict]) -> str | None:
-    if not GROQ_API_KEY:
-        return None
-
-    groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+def build_openai_messages(messages):
+    result = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in messages:
-        groq_messages.append({"role": msg["role"], "content": msg["content"]})
+        role = msg.get("role", "user")
+        if role == "model":
+            role = "assistant"
+        result.append({"role": role, "content": msg.get("content", "")})
+    return result
+
+
+async def call_groq(messages):
+    if not GROQ_API_KEY:
+        return None, "no key"
+
+    oai_msgs = build_openai_messages(messages)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -54,7 +60,7 @@ async def call_groq(messages: list[dict]) -> str | None:
                 },
                 json={
                     "model": "openai/gpt-oss-120b",
-                    "messages": groq_messages,
+                    "messages": oai_msgs,
                     "max_tokens": 4096,
                     "temperature": 0.7,
                 },
@@ -62,31 +68,30 @@ async def call_groq(messages: list[dict]) -> str | None:
             )
 
         if resp.status_code == 429:
-            logger.warning("Groq rate limit (429)")
-            return None
+            logger.warning(f"Groq rate limit: {resp.text[:200]}")
+            return None, "429 rate limit"
 
         if resp.status_code != 200:
-            logger.error(f"Groq error: {resp.status_code} {resp.text[:200]}")
-            return None
+            err = resp.text[:200]
+            logger.error(f"Groq {resp.status_code}: {err}")
+            return None, f"{resp.status_code}: {err}"
 
         data = resp.json()
         reply = data["choices"][0]["message"]["content"]
-        logger.info(f"Groq reply: {reply[:80]}")
-        return reply
+        logger.info(f"Groq OK: {reply[:80]}")
+        return reply, None
 
     except Exception as e:
-        logger.error(f"Groq error: {type(e).__name__}: {e}")
-        return None
+        err = f"{type(e).__name__}: {e}"
+        logger.error(f"Groq exception: {err}")
+        return None, err
 
 
-# ── Provider: Cerebras ─────────────────────────────────────────────
-async def call_cerebras(messages: list[dict]) -> str | None:
+async def call_cerebras(messages):
     if not CEREBRAS_API_KEY:
-        return None
+        return None, "no key"
 
-    cerebras_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in messages:
-        cerebras_messages.append({"role": msg["role"], "content": msg["content"]})
+    oai_msgs = build_openai_messages(messages)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -98,7 +103,7 @@ async def call_cerebras(messages: list[dict]) -> str | None:
                 },
                 json={
                     "model": "gpt-oss-120b",
-                    "messages": cerebras_messages,
+                    "messages": oai_msgs,
                     "max_tokens": 4096,
                     "temperature": 0.7,
                 },
@@ -106,32 +111,33 @@ async def call_cerebras(messages: list[dict]) -> str | None:
             )
 
         if resp.status_code == 429:
-            logger.warning("Cerebras rate limit (429)")
-            return None
+            logger.warning(f"Cerebras rate limit: {resp.text[:200]}")
+            return None, "429 rate limit"
 
         if resp.status_code != 200:
-            logger.error(f"Cerebras error: {resp.status_code} {resp.text[:200]}")
-            return None
+            err = resp.text[:200]
+            logger.error(f"Cerebras {resp.status_code}: {err}")
+            return None, f"{resp.status_code}: {err}"
 
         data = resp.json()
         reply = data["choices"][0]["message"]["content"]
-        logger.info(f"Cerebras reply: {reply[:80]}")
-        return reply
+        logger.info(f"Cerebras OK: {reply[:80]}")
+        return reply, None
 
     except Exception as e:
-        logger.error(f"Cerebras error: {type(e).__name__}: {e}")
-        return None
+        err = f"{type(e).__name__}: {e}"
+        logger.error(f"Cerebras exception: {err}")
+        return None, err
 
 
-# ── Provider: Gemini 2.5 Flash ─────────────────────────────────────
-async def call_gemini(messages: list[dict]) -> str | None:
+async def call_gemini(messages):
     if not gemini_client:
-        return None
+        return None, "no client"
 
     contents = []
     for msg in messages:
-        role = msg["role"]
-        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        role = msg.get("role", "user")
+        contents.append({"role": role, "parts": [{"text": msg.get("content", "")}]})
 
     try:
         import asyncio
@@ -150,16 +156,16 @@ async def call_gemini(messages: list[dict]) -> str | None:
         response = await asyncio.to_thread(_call)
         reply = response.text
         if not reply:
-            return None
-        logger.info(f"Gemini reply: {reply[:80]}")
-        return reply
+            return None, "empty response"
+        logger.info(f"Gemini OK: {reply[:80]}")
+        return reply, None
 
     except Exception as e:
-        logger.error(f"Gemini error: {type(e).__name__}: {e}")
-        return None
+        err = f"{type(e).__name__}: {e}"
+        logger.error(f"Gemini exception: {err}")
+        return None, err
 
 
-# ── Health ──────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
     providers = []
@@ -172,7 +178,6 @@ async def health():
     return {"status": "ok", "providers": providers}
 
 
-# ── Ask (with fallback) ────────────────────────────────────────────
 @app.post("/ask")
 async def ask(request: Request):
     try:
@@ -194,24 +199,27 @@ async def ask(request: Request):
 
         logger.info(f"Ask: {question[:50]}... | history: {len(history)} msgs")
 
-        # Fallback order: Groq → Cerebras → Gemini
-        reply = await call_groq(messages)
+        errors = {}
+
+        reply, err = await call_groq(messages)
         if reply:
             return {"reply": reply, "provider": "groq"}
+        errors["groq"] = err
 
-        logger.info("Groq failed, trying Cerebras...")
-        reply = await call_cerebras(messages)
+        reply, err = await call_cerebras(messages)
         if reply:
             return {"reply": reply, "provider": "cerebras"}
+        errors["cerebras"] = err
 
-        logger.info("Cerebras failed, trying Gemini...")
-        reply = await call_gemini(messages)
+        reply, err = await call_gemini(messages)
         if reply:
             return {"reply": reply, "provider": "gemini"}
+        errors["gemini"] = err
 
+        logger.error(f"All providers failed: {errors}")
         return JSONResponse(
             status_code=503,
-            content={"error": "Semua provider gagal. Coba lagi nanti."},
+            content={"error": "all providers failed", "details": errors},
         )
 
     except Exception as e:
