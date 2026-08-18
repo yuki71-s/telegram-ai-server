@@ -33,6 +33,7 @@ async def ask(request: Request):
         import json
         data = json.loads(body)
         question = data.get("question", "")
+        history = data.get("history", [])
 
         if not question:
             return JSONResponse(
@@ -40,10 +41,18 @@ async def ask(request: Request):
                 content={"error": "question kosong"},
             )
 
-        logger.info(f"Calling Gemini with question: {question[:80]}")
+        contents = []
+        for msg in history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            contents.append({"role": role, "parts": [{"text": content}]})
+
+        contents.append({"role": "user", "parts": [{"text": question}]})
+
+        logger.info(f"Calling Gemini with {len(contents)} messages")
         response = client.models.generate_content(
             model="gemini-3.6-flash",
-            contents=question,
+            contents=contents,
             config={
                 "system_instruction": (
                     "Kamu adalah asisten AI profesional yang menjawab dalam Bahasa Indonesia. "
@@ -51,7 +60,8 @@ async def ask(request: Request):
                     "- Default: jawab TO THE POINT dalam 1 paragraf (3-5 kalimat).\n"
                     "- Kalau user minta penjelasan/detail/panjang/lengkap, baru berikan jawaban lengkap.\n"
                     "- Gunakan bullet point jika perlu.\n"
-                    "- Gunakan emoji sesekali saja."
+                    "- Gunakan emoji sesekali saja.\n"
+                    "- Ingat konteks percakapan sebelumnya jika ada."
                 ),
                 "max_output_tokens": 4096,
                 "temperature": 0.7,
