@@ -79,7 +79,7 @@ async def call_gemini_search(messages):
 
         def _call():
             return gemini_client.models.generate_content(
-                model="gemini-3.6-flash",
+                model="gemini-3.5-flash",
                 contents=contents,
                 config=GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -111,7 +111,7 @@ async def health():
         "providers": ["gemini-flash-lite", "gemini-search"],
         "models": {
             "gemini": "gemini-3.1-flash-lite",
-            "gemini/search": "gemini-3.6-flash + Google Search",
+            "gemini/search": "gemini-3.5-flash + Google Search",
         },
     }
 
