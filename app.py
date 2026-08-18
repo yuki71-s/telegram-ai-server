@@ -66,7 +66,7 @@ async def call_gemini_flash_lite(messages):
         return None, err
 
 
-# ── Gemini 2.5 Flash + Google Search (real-time) ────────────────────
+# ── Gemini 3.6 Flash + Google Search (real-time) ────────────────────
 
 async def call_gemini_search(messages):
     contents = []
@@ -79,7 +79,7 @@ async def call_gemini_search(messages):
 
         def _call():
             return gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=contents,
                 config=GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -93,12 +93,12 @@ async def call_gemini_search(messages):
         reply = response.text
         if not reply:
             return None, "empty response"
-        logger.info(f"Gemini 2.5 Flash + Search OK: {reply[:80]}")
+        logger.info(f"Gemini 3.6 Flash + Search OK: {reply[:80]}")
         return reply, None
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        logger.error(f"Gemini 2.5 Flash + Search exception: {err}")
+        logger.error(f"Gemini 3.6 Flash + Search exception: {err}")
         return None, err
 
 
@@ -111,7 +111,7 @@ async def health():
         "providers": ["gemini-flash-lite", "gemini-search"],
         "models": {
             "gemini": "gemini-3.1-flash-lite",
-            "gemini/search": "gemini-2.5-flash + Google Search",
+            "gemini/search": "gemini-3.6-flash + Google Search",
         },
     }
 
