@@ -5,7 +5,7 @@ import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from google import genai
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig
+from google.genai.types import GenerateContentConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +33,7 @@ SYSTEM_PROMPT = (
 )
 
 
-# ── Gemini 3.1 Flash Lite (default, tanpa search) ───────────────────
+# ── Gemini 3.1 Flash Lite (default, cepat) ──────────────────────────
 
 async def call_gemini_flash_lite(messages):
     contents = []
@@ -66,24 +66,21 @@ async def call_gemini_flash_lite(messages):
         return None, err
 
 
-# ── Gemini 3.6 Flash + Google Search (real-time) ────────────────────
+# ── Gemini 3.6 Flash (pintar, fallback) ─────────────────────────────
 
-async def call_gemini_search(messages):
+async def call_gemini_flash(messages):
     contents = []
     for msg in messages:
         role = msg.get("role", "user")
         contents.append({"role": role, "parts": [{"text": msg.get("content", "")}]})
 
     try:
-        tools = [Tool(google_search=GoogleSearch())]
-
         def _call():
             return gemini_client.models.generate_content(
-                model="gemini-3.5-flash",
+                model="gemini-3.6-flash",
                 contents=contents,
                 config=GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    tools=tools,
                     max_output_tokens=4096,
                     temperature=0.7,
                 ),
@@ -93,12 +90,12 @@ async def call_gemini_search(messages):
         reply = response.text
         if not reply:
             return None, "empty response"
-        logger.info(f"Gemini 3.6 Flash + Search OK: {reply[:80]}")
+        logger.info(f"Gemini 3.6 Flash OK: {reply[:80]}")
         return reply, None
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        logger.error(f"Gemini 3.6 Flash + Search exception: {err}")
+        logger.error(f"Gemini 3.6 Flash exception: {err}")
         return None, err
 
 
@@ -108,10 +105,10 @@ async def call_gemini_search(messages):
 async def health():
     return {
         "status": "ok",
-        "providers": ["gemini-flash-lite", "gemini-search"],
+        "providers": ["gemini-flash-lite", "gemini-flash"],
         "models": {
             "gemini": "gemini-3.1-flash-lite",
-            "gemini/search": "gemini-3.5-flash + Google Search",
+            "gemini/flash": "gemini-3.6-flash",
         },
     }
 
@@ -143,29 +140,29 @@ async def ask(request: Request):
         errors = {}
 
         # Route berdasarkan model preference
-        if model_pref == "gemini/search":
-            reply, err = await call_gemini_search(messages)
+        if model_pref == "gemini/flash":
+            reply, err = await call_gemini_flash(messages)
             if reply:
-                return {"reply": reply, "provider": "gemini-search"}
-            errors["gemini-search"] = err
+                return {"reply": reply, "provider": "gemini-3.6-flash"}
+            errors["gemini-flash"] = err
 
         elif model_pref == "gemini":
             reply, err = await call_gemini_flash_lite(messages)
             if reply:
-                return {"reply": reply, "provider": "gemini"}
-            errors["gemini"] = err
+                return {"reply": reply, "provider": "gemini-3.1-flash-lite"}
+            errors["gemini-flash-lite"] = err
 
         else:
-            # Default: Gemini 3.1 Flash Lite → Gemini 2.5 Flash + Search
+            # Default: Gemini 3.1 Flash Lite → Gemini 3.6 Flash
             reply, err = await call_gemini_flash_lite(messages)
             if reply:
-                return {"reply": reply, "provider": "gemini"}
-            errors["gemini"] = err
+                return {"reply": reply, "provider": "gemini-3.1-flash-lite"}
+            errors["gemini-flash-lite"] = err
 
-            reply, err = await call_gemini_search(messages)
+            reply, err = await call_gemini_flash(messages)
             if reply:
-                return {"reply": reply, "provider": "gemini-search"}
-            errors["gemini-search"] = err
+                return {"reply": reply, "provider": "gemini-3.6-flash"}
+            errors["gemini-flash"] = err
 
         logger.error(f"All providers failed: {errors}")
         return JSONResponse(
