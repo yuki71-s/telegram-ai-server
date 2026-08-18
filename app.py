@@ -53,7 +53,7 @@ async def call_groq(messages: list[dict]) -> str | None:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": "openai/gpt-oss-120b",
                     "messages": groq_messages,
                     "max_tokens": 4096,
                     "temperature": 0.7,
@@ -97,7 +97,7 @@ async def call_cerebras(messages: list[dict]) -> str | None:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "llama-3.3-70b",
+                    "model": "gpt-oss-120b",
                     "messages": cerebras_messages,
                     "max_tokens": 4096,
                     "temperature": 0.7,
