@@ -117,6 +117,11 @@ async def call_openrouter(messages, model, image_url=None, web_search=False):
 
     for msg in messages:
         role = msg.get("role", "user")
+        if role == "model":
+            role = "assistant"
+        elif role not in ("user", "assistant", "system"):
+            role = "user"
+
         content_parts = []
 
         if image_url and role == "user" and msg == messages[-1]:
@@ -208,7 +213,8 @@ async def ask(request: Request):
 
         messages = []
         for msg in history:
-            messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+            role = msg.get("role", "user")
+            messages.append({"role": role, "content": msg.get("content", "")})
         messages.append({"role": "user", "content": question})
 
         logger.info(f"Ask: {question[:50]}... | model: {model_pref or 'default'} | image: {bool(image_url)} | search: {web_search}")
