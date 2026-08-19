@@ -217,7 +217,7 @@ async def ask(request: Request):
 
         # ── Gambar → langsung ke OpenRouter (vision model) ──
         if image_url:
-            vision_model = "google/gemma-4-26b-it:free"
+            vision_model = "google/gemma-4-26b-a4b-it:free"
             reply, err = await call_openrouter(messages, vision_model, image_url=image_url)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
