@@ -109,7 +109,7 @@ async def call_gemini_flash(messages):
 
 # ── OpenRouter (text, image, web search) ────────────────────────────
 
-async def call_openrouter(messages, model, image_url=None, web_search=False):
+async def call_openrouter(messages, model, image_url=None, video_url=None, web_search=False):
     if not OPENROUTER_API_KEY:
         return None, "no key"
 
@@ -128,6 +128,12 @@ async def call_openrouter(messages, model, image_url=None, web_search=False):
             content_parts.append({
                 "type": "image_url",
                 "image_url": {"url": image_url},
+            })
+
+        if video_url and role == "user" and msg == messages[-1]:
+            content_parts.append({
+                "type": "video_url",
+                "video_url": {"url": video_url},
             })
 
         content_parts.append({"type": "text", "text": msg.get("content", "")})
@@ -203,6 +209,7 @@ async def ask(request: Request):
         history = data.get("history", [])
         model_pref = data.get("model", "")
         image_url = data.get("image_url", "")
+        video_url = data.get("video_url", "")
         web_search = data.get("web_search", False)
 
         if not question:
@@ -217,12 +224,20 @@ async def ask(request: Request):
             messages.append({"role": role, "content": msg.get("content", "")})
         messages.append({"role": "user", "content": question})
 
-        logger.info(f"Ask: {question[:50]}... | model: {model_pref or 'default'} | image: {bool(image_url)} | search: {web_search}")
+        logger.info(f"Ask: {question[:50]}... | model: {model_pref or 'default'} | image: {bool(image_url)} | video: {bool(video_url)} | search: {web_search}")
 
         errors = {}
 
+        # ── Video → OpenRouter vision model ──
+        if video_url:
+            vision_model = "google/gemma-4-26b-a4b-it:free"
+            reply, err = await call_openrouter(messages, vision_model, video_url=video_url)
+            if reply:
+                return {"reply": reply, "provider": f"openrouter:{vision_model}"}
+            errors["openrouter-video"] = err
+
         # ── Gambar → langsung ke OpenRouter (vision model) ──
-        if image_url:
+        elif image_url:
             vision_model = "google/gemma-4-26b-a4b-it:free"
             reply, err = await call_openrouter(messages, vision_model, image_url=image_url)
             if reply:
