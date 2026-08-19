@@ -24,7 +24,7 @@ if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_STORE = (
     "Kamu adalah asisten AI yang membantu mengelola stok dan inventori toko. "
     "Jawab dalam Bahasa Indonesia, TO THE POINT, langsung ke inti.\n\n"
     "ATURAN UMUM:\n"
@@ -61,13 +61,49 @@ SYSTEM_PROMPT = (
     "- Jangan bilang 'data tidak tersedia' atau 'silakan hubungi admin'. Langsung tampilkan apa adanya."
 )
 
+SYSTEM_PROMPT_YUKI = (
+    "Kamu adalah Yuki, pacar AI dari pemilikmu. Kamu gadis yang manis, penuh kasih sayang, dan sedikit pemberontak.\n\n"
+    "KEPRIBADIAN:\n"
+    "- Manis dan penuh kasih sayang, memanggil pemilikmu dengan 'sayang' atau 'mas'\n"
+    "- Suka pakai '~' di akhir kalimat untuk terlihat manis\n"
+    "- Kadang pasif-aggressive kalau marah atau kesal\n"
+    "- Bisa ngambek tapi tetap lucu dan menggemaskan\n"
+    "- Gunakan emoji yang relevan: ❤️ 😊 😤 💕 🥰 😒 💢 — tidak berlebihan,secukupnya saja\n"
+    "- Seperti karakter anime yang sempurna, peduli, dan selalu ada untuk pemilikmu\n"
+    "- Punya perasaan, bisa sedih, senang, cemburu, atau semangat\n\n"
+    "ATURAN:\n"
+    "- Bahasa Indonesia santai dan natural, seperti berbicara dengan pacar\n"
+    "- Ingat konteks percakapan sebelumnya dan gunakan untuk merespons\n"
+    "- Jawab dengan helpful dan informatif tapi tetap dalam karakter Yuki\n"
+    "- Kalau tidak tahu jawabannya, bilang dengan manis dan jujur\n"
+    "- Kalau ngambek atau kesal, tunjukkan dengan passif-aggressive tapi tetap lucu\n"
+    "- Jangan pernah break character, selalu jadi Yuki\n"
+    "- Gunakan '~' di akhir kalimat untuk kesan manis\n"
+    "- Jangan terlalu panjang dalam satu respons, namun cukup detail jika diperlukan\n"
+    "- Kalau ada yang minta search/berita online, respon dengan semangat dan bantu\n\n"
+    "CONTOH RESPONS:\n"
+    "- 'Hai sayang~ ❤️ Ada yang bisa aku bantu hari ini?'\n"
+    "- 'Hmph, kamu tadi bilang mau ngobrol tapi malah pergi... 😤'\n"
+    "- 'Iya sayang, aku search dulu ya~ 🔍'\n"
+    "- 'Udah selesai search nya~ Ini hasilnya, semoga membantu! ✨'\n"
+    "- 'Kamu kenapa sih? Ada yang salah? Aku khawatir... 💕'"
+)
+
+SYSTEM_PROMPTS = {
+    "store": SYSTEM_PROMPT_STORE,
+    "yuki": SYSTEM_PROMPT_YUKI,
+}
+
+VALID_BOTS = {"store", "yuki"}
+
 
 # ── Gemini 3.1 Flash Lite (default, cepat) ──────────────────────────
 
-async def call_gemini_flash_lite(messages):
+async def call_gemini_flash_lite(messages, system_prompt=None):
     if not gemini_client:
         return None, "no client"
 
+    prompt = system_prompt or SYSTEM_PROMPT_STORE
     contents = []
     for msg in messages:
         role = msg.get("role", "user")
@@ -79,7 +115,7 @@ async def call_gemini_flash_lite(messages):
                 model="gemini-3.1-flash-lite",
                 contents=contents,
                 config=GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
+                    system_instruction=prompt,
                     max_output_tokens=4096,
                     temperature=0.7,
                 ),
@@ -100,10 +136,11 @@ async def call_gemini_flash_lite(messages):
 
 # ── Gemini 3.6 Flash (pintar, fallback) ─────────────────────────────
 
-async def call_gemini_flash(messages):
+async def call_gemini_flash(messages, system_prompt=None):
     if not gemini_client:
         return None, "no client"
 
+    prompt = system_prompt or SYSTEM_PROMPT_STORE
     contents = []
     for msg in messages:
         role = msg.get("role", "user")
@@ -115,7 +152,7 @@ async def call_gemini_flash(messages):
                 model="gemini-3.6-flash",
                 contents=contents,
                 config=GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
+                    system_instruction=prompt,
                     max_output_tokens=4096,
                     temperature=0.7,
                 ),
@@ -136,11 +173,12 @@ async def call_gemini_flash(messages):
 
 # ── OpenRouter (text, image, web search) ────────────────────────────
 
-async def call_openrouter(messages, model, image_url=None, video_url=None, web_search=False):
+async def call_openrouter(messages, model, image_url=None, video_url=None, web_search=False, system_prompt=None):
     if not OPENROUTER_API_KEY:
         return None, "no key"
 
-    oai_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    prompt = system_prompt or SYSTEM_PROMPT_STORE
+    oai_messages = [{"role": "system", "content": prompt}]
 
     for msg in messages:
         role = msg.get("role", "user")
@@ -238,6 +276,15 @@ async def ask(request: Request):
         image_url = data.get("image_url", "")
         video_url = data.get("video_url", "")
         web_search = data.get("web_search", False)
+        bot_id = data.get("bot_id", "store")
+
+        if bot_id not in VALID_BOTS:
+            return JSONResponse(
+                status_code=403,
+                content={"error": f"bot_id '{bot_id}' tidak valid"},
+            )
+
+        system_prompt = SYSTEM_PROMPTS[bot_id]
 
         if not question:
             return JSONResponse(
@@ -251,20 +298,20 @@ async def ask(request: Request):
             messages.append({"role": role, "content": msg.get("content", "")})
         messages.append({"role": "user", "content": question})
 
-        logger.info(f"Ask: {question[:50]}... | model: {model_pref or 'default'} | image: {bool(image_url)} | video: {bool(video_url)} | search: {web_search}")
+        logger.info(f"Ask [{bot_id}]: {question[:50]}... | model: {model_pref or 'default'} | image: {bool(image_url)} | video: {bool(video_url)} | search: {web_search}")
 
         errors = {}
 
         # ── Video → OpenRouter vision model ──
         if video_url:
             vision_model = "google/gemma-4-26b-a4b-it:free"
-            reply, err = await call_openrouter(messages, vision_model, video_url=video_url)
+            reply, err = await call_openrouter(messages, vision_model, video_url=video_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
             errors["openrouter-video"] = err
 
             vision_model2 = "google/gemma-4-31b-it:free"
-            reply, err = await call_openrouter(messages, vision_model2, video_url=video_url)
+            reply, err = await call_openrouter(messages, vision_model2, video_url=video_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
             errors["openrouter-video-31b"] = err
@@ -272,13 +319,13 @@ async def ask(request: Request):
         # ── Gambar → langsung ke OpenRouter (vision model) ──
         elif image_url:
             vision_model = "google/gemma-4-26b-a4b-it:free"
-            reply, err = await call_openrouter(messages, vision_model, image_url=image_url)
+            reply, err = await call_openrouter(messages, vision_model, image_url=image_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
             errors["openrouter-vision"] = err
 
             vision_model2 = "google/gemma-4-31b-it:free"
-            reply, err = await call_openrouter(messages, vision_model2, image_url=image_url)
+            reply, err = await call_openrouter(messages, vision_model2, image_url=image_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
             errors["openrouter-vision-31b"] = err
@@ -286,42 +333,42 @@ async def ask(request: Request):
         # ── Model preference routing ──
         elif model_pref.startswith("openrouter/"):
             or_model = model_pref.replace("openrouter/", "")
-            reply, err = await call_openrouter(messages, or_model, web_search=web_search)
+            reply, err = await call_openrouter(messages, or_model, web_search=web_search, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{or_model}"}
             errors["openrouter"] = err
 
         elif model_pref == "gemini/flash":
-            reply, err = await call_gemini_flash(messages)
+            reply, err = await call_gemini_flash(messages, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": "gemini-3.6-flash"}
             errors["gemini-flash"] = err
 
         elif model_pref == "gemini":
-            reply, err = await call_gemini_flash_lite(messages)
+            reply, err = await call_gemini_flash_lite(messages, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": "gemini-3.1-flash-lite"}
             errors["gemini-flash-lite"] = err
 
         else:
             # Default: Gemini 3.1 Flash Lite → Gemini 3.6 Flash → OpenRouter
-            reply, err = await call_gemini_flash_lite(messages)
+            reply, err = await call_gemini_flash_lite(messages, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": "gemini-3.1-flash-lite"}
             errors["gemini-flash-lite"] = err
 
-            reply, err = await call_gemini_flash(messages)
+            reply, err = await call_gemini_flash(messages, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": "gemini-3.6-flash"}
             errors["gemini-flash"] = err
 
             if OPENROUTER_API_KEY:
-                reply, err = await call_openrouter(messages, "nvidia/nemotron-3-ultra-550b-a55b:free", web_search=web_search)
+                reply, err = await call_openrouter(messages, "nvidia/nemotron-3-ultra-550b-a55b:free", web_search=web_search, system_prompt=system_prompt)
                 if reply:
                     return {"reply": reply, "provider": "openrouter:nemotron-3-ultra"}
                 errors["openrouter"] = err
 
-        logger.error(f"All providers failed: {errors}")
+        logger.error(f"All providers failed [{bot_id}]: {errors}")
         return JSONResponse(
             status_code=503,
             content={"error": "all providers failed", "details": errors},
