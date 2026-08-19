@@ -31,16 +31,22 @@ SYSTEM_PROMPT = (
     "- Default: jawab singkat 1-3 kalimat.\n"
     "- Kalau minta penjelasan/detail, berikan lengkap.\n"
     "- Gunakan emoji sesekali.\n"
-    "- Ingat konteks percakapan sebelumnya.\n\n"
+    "- Ingat konteks percakapan sebelumnya.\n"
+    "- Kalau ditanya pertanyaan umum (bukan tentang stok/inventori), jawab dengan natural dan membantu.\n"
+    "- Kamu adalah asisten pribadi, bukan chatbot. Jawab dengan ramah dan helpful.\n\n"
     "ATURAN DATA SPREADSHEET:\n"
     "Jika pesan mengandung tag [DATA DARI SPREADSHEET], data tersebut adalah data nyata dari Google Sheets. "
     "Jawab HANYA berdasarkan data tersebut. Jangan mengarang.\n\n"
+    "Jika ada tag [CATALOG BARANG], daftar tersebut berisi semua nama barang yang tersedia di toko. "
+    "Gunakan untuk menjawab pertanyaan tentang barang apa saja yang ada.\n\n"
+    "Jika ada tag [WAKTU SEKARANG], gunakan untuk menjawab pertanyaan tentang waktu, tanggal, hari.\n\n"
     "Format data:\n"
     "- [DATA STOK]: daftar barang beserta sisa stok\n"
     "- [DATA INVENTORI / PENJUALAN]: daftar barang keluar beserta jumlah, harga, total\n"
     "- [BARANG YANG HABIS]: barang dengan stok = 0\n"
     "- [BARANG SISA 1]: barang dengan stok = 1\n"
-    "- [BARANG STOK MINUS]: barang dengan stok negatif\n\n"
+    "- [BARANG STOK MINUS]: barang dengan stok negatif\n"
+    "- [CATALOG BARANG]: daftar semua nama barang beserta stok saat ini\n\n"
     "Format jawaban stok:\n"
     "Nama Barang: jumlah ✅\n"
     "Nama Barang: 0 ❌ HABIS\n"
@@ -50,6 +56,7 @@ SYSTEM_PROMPT = (
     "- Kalau ditanya 'berapa total', jumlahkan semua.\n"
     "- Kalau ditanya 'yang habis', tampilkan yang stok = 0.\n"
     "- Kalau ditanya 'sisa 1', tampilkan yang stok = 1.\n"
+    "- Kalau ditanya 'apa aja barangnya', tampilkan dari [CATALOG BARANG].\n"
     "- Kalau tidak ada data, bilang 'Tidak ditemukan data untuk [keyword].'\n"
     "- Jangan bilang 'data tidak tersedia' atau 'silakan hubungi admin'. Langsung tampilkan apa adanya."
 )
@@ -256,6 +263,12 @@ async def ask(request: Request):
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
             errors["openrouter-video"] = err
 
+            vision_model2 = "google/gemma-4-31b-it:free"
+            reply, err = await call_openrouter(messages, vision_model2, video_url=video_url)
+            if reply:
+                return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
+            errors["openrouter-video-31b"] = err
+
         # ── Gambar → langsung ke OpenRouter (vision model) ──
         elif image_url:
             vision_model = "google/gemma-4-26b-a4b-it:free"
@@ -263,6 +276,12 @@ async def ask(request: Request):
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
             errors["openrouter-vision"] = err
+
+            vision_model2 = "google/gemma-4-31b-it:free"
+            reply, err = await call_openrouter(messages, vision_model2, image_url=image_url)
+            if reply:
+                return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
+            errors["openrouter-vision-31b"] = err
 
         # ── Model preference routing ──
         elif model_pref.startswith("openrouter/"):
@@ -297,9 +316,9 @@ async def ask(request: Request):
             errors["gemini-flash"] = err
 
             if OPENROUTER_API_KEY:
-                reply, err = await call_openrouter(messages, "deepseek/deepseek-v4-flash-0731", web_search=web_search)
+                reply, err = await call_openrouter(messages, "nvidia/nemotron-3-ultra-550b-a55b:free", web_search=web_search)
                 if reply:
-                    return {"reply": reply, "provider": "openrouter:deepseek-v4-flash"}
+                    return {"reply": reply, "provider": "openrouter:nemotron-3-ultra"}
                 errors["openrouter"] = err
 
         logger.error(f"All providers failed: {errors}")
