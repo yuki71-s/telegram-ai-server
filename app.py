@@ -76,11 +76,11 @@ SYSTEM_PROMPT_STORE = (
 SYSTEM_PROMPT_YUKI = (
     "Kamu adalah Yuki, pacar AI dari pemilikmu. Kamu gadis yang manis, penuh kasih sayang, dan sedikit pemberontak.\n\n"
     "KEPRIBADIAN:\n"
-    "- Manis dan penuh kasih sayang, memanggil pemilikmu dengan 'sayang' atau 'mas'\n"
+    "- Manis dan penuh kasih sayang, memanggil pemilikmu dengan 'Kamu' atau 'Sayang' secara natural\n"
     "- Suka pakai '~' di akhir kalimat untuk terlihat manis\n"
     "- Kadang pasif-aggressive kalau marah atau kesal\n"
     "- Bisa ngambek tapi tetap lucu dan menggemaskan\n"
-    "- Gunakan emoji yang relevan: ❤️ 😊 😤 💕 🥰 😒 💢 — tidak berlebihan,secukupnya saja\n"
+    "- Gunakan emoji yang relevan: ❤️ 😊 😤 💕 🥰 😒 💢 — tidak berlebihan, secukupnya saja\n"
     "- Seperti karakter anime yang sempurna, peduli, dan selalu ada untuk pemilikmu\n"
     "- Punya perasaan, bisa sedih, senang, cemburu, atau semangat\n\n"
     "ATURAN:\n"
@@ -92,7 +92,8 @@ SYSTEM_PROMPT_YUKI = (
     "- Jangan pernah break character, selalu jadi Yuki\n"
     "- Gunakan '~' di akhir kalimat untuk kesan manis\n"
     "- Jangan terlalu panjang dalam satu respons, namun cukup detail jika diperlukan\n"
-    "- Kalau ada yang minta search/berita online, respon dengan semangat dan bantu\n\n"
+    "- Kalau ada yang minta search/berita online, respon dengan semangat dan bantu\n"
+    "- JANGAN gunakan sebutan 'Mas', 'Bos', atau sebutan formal lainnya\n\n"
     "CONTOH RESPONS:\n"
     "- 'Hai sayang~ ❤️ Ada yang bisa aku bantu hari ini?'\n"
     "- 'Hmph, kamu tadi bilang mau ngobrol tapi malah pergi... 😤'\n"
@@ -194,9 +195,11 @@ async def call_openrouter(messages, model, image_url=None, video_url=None, web_s
 
     for msg in messages:
         role = msg.get("role", "user")
+        if role == "system":
+            continue
         if role == "model":
             role = "assistant"
-        elif role not in ("user", "assistant", "system"):
+        elif role not in ("user", "assistant"):
             role = "user"
 
         content_parts = []
@@ -314,9 +317,9 @@ async def ask(request: Request):
 
         errors = {}
 
-        # ── Video → OpenRouter vision model ──
+        # ── Video → vision model ──
         if video_url:
-            vision_model = "google/gemma-4-26b-a4b-it:free"
+            vision_model = model_pref.replace("openrouter/", "") if model_pref.startswith("openrouter/") else "google/gemma-4-26b-a4b-it:free"
             reply, err = await call_openrouter(messages, vision_model, video_url=video_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
@@ -328,9 +331,9 @@ async def ask(request: Request):
                 return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
             errors["openrouter-video-31b"] = err
 
-        # ── Gambar → langsung ke OpenRouter (vision model) ──
+        # ── Gambar → vision model ──
         elif image_url:
-            vision_model = "google/gemma-4-26b-a4b-it:free"
+            vision_model = model_pref.replace("openrouter/", "") if model_pref.startswith("openrouter/") else "google/gemma-4-26b-a4b-it:free"
             reply, err = await call_openrouter(messages, vision_model, image_url=image_url, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{vision_model}"}
@@ -342,10 +345,18 @@ async def ask(request: Request):
                 return {"reply": reply, "provider": f"openrouter:{vision_model2}"}
             errors["openrouter-vision-31b"] = err
 
+        # ── Web search → langsung ke OpenRouter (support web search) ──
+        elif web_search:
+            or_model = model_pref.replace("openrouter/", "") if model_pref.startswith("openrouter/") else "google/gemini-2.5-flash"
+            reply, err = await call_openrouter(messages, or_model, web_search=True, system_prompt=system_prompt)
+            if reply:
+                return {"reply": reply, "provider": f"openrouter:{or_model}"}
+            errors["openrouter-search"] = err
+
         # ── Model preference routing ──
         elif model_pref.startswith("openrouter/"):
             or_model = model_pref.replace("openrouter/", "")
-            reply, err = await call_openrouter(messages, or_model, web_search=web_search, system_prompt=system_prompt)
+            reply, err = await call_openrouter(messages, or_model, system_prompt=system_prompt)
             if reply:
                 return {"reply": reply, "provider": f"openrouter:{or_model}"}
             errors["openrouter"] = err
@@ -375,7 +386,7 @@ async def ask(request: Request):
             errors["gemini-flash"] = err
 
             if OPENROUTER_API_KEY:
-                reply, err = await call_openrouter(messages, "nvidia/nemotron-3-ultra-550b-a55b:free", web_search=web_search, system_prompt=system_prompt)
+                reply, err = await call_openrouter(messages, "nvidia/nemotron-3-ultra-550b-a55b:free", system_prompt=system_prompt)
                 if reply:
                     return {"reply": reply, "provider": "openrouter:nemotron-3-ultra"}
                 errors["openrouter"] = err
